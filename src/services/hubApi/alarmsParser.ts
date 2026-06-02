@@ -1,4 +1,5 @@
 import type { Alarm, AlarmDataType, SensorData } from "../../types";
+import type { NotifyMessage } from "../notifyApi/NotifyApiClient";
 
 /**
  * Parsea las alarmas emitidas por el hub en /actual.errors.
@@ -98,6 +99,70 @@ function normalizeHubTimestamp(rawTimestamp: string): string {
     return rawTimestamp;
   }
   return date.toISOString();
+}
+
+/**
+ * Convierte un mensaje push de ntfy (suscripción a `notify/<Hub_ID>`) en una
+ * Alarm. El body reutiliza el mismo formato de log que /actual.errors
+ * (ej. "[T] temperature too low: 19.97"), pero el timestamp viene en el campo
+ * `time` del mensaje ntfy (epoch en segundos), no embebido en el texto.
+ *
+ * Devuelve undefined si el mensaje no corresponde a una medición que el modelo
+ * de alarmas soporte (ej. avisos de WiFi).
+ */
+export function parseAlarmFromNotifyMessage(
+  msg: NotifyMessage
+): Alarm | undefined {
+  const text = msg.message.trim();
+  if (text === "") {
+    return undefined;
+  }
+
+  const dataType = classifyDataType(text);
+  if (!dataType) {
+    return undefined;
+  }
+
+  const timestamp =
+    msg.time > 0 ? new Date(msg.time * 1000).toISOString() : "";
+
+  return {
+    id: `ntfy-${msg.id}`,
+    timestamp,
+    dataType,
+    alertValue: extractAlertValue(text),
+    currentValue: extractCurrentValue(text),
+    zones: [],
+    status: "active",
+    message: text,
+  };
+}
+
+/**
+ * Clasifica el tipo de medición a partir del prefijo del log del hub
+ * (`[T]`, `[H]`, `[C]`, `[P]`) con fallback a palabras clave.
+ */
+function classifyDataType(text: string): AlarmDataType | undefined {
+  const tag = text.match(/^\s*\[([A-Za-z])\]/)?.[1]?.toUpperCase();
+  switch (tag) {
+    case "T":
+      return "temperature";
+    case "H":
+      return "humidity";
+    case "C":
+      return "co2";
+    case "P":
+      return "pressure";
+    default:
+      break;
+  }
+
+  const lower = text.toLowerCase();
+  if (lower.includes("temp")) return "temperature";
+  if (lower.includes("humid")) return "humidity";
+  if (lower.includes("co2")) return "co2";
+  if (lower.includes("pressure") || lower.includes("presi")) return "pressure";
+  return undefined;
 }
 
 function extractCurrentValue(message: string): number {

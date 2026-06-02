@@ -1,5 +1,12 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import { View, Text, Alert, StyleSheet, ScrollView } from "react-native";
+import {
+  View,
+  Text,
+  Alert,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+} from "react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import {
   COLORS,
@@ -10,8 +17,15 @@ import {
 import { useHubDataStore } from "../stores/hubDataStore";
 import { toggleRelay } from "../services/hubDataService";
 import { useHubStore } from "../stores/hubStore";
+import {
+  useZoneStore,
+  zoneAssignmentKey,
+  mergeDeviceZones,
+} from "../stores/zoneStore";
+import { resolveHubTarget } from "../services/connectivity";
 import { Card, IconBadge, ZonaPill, BigButton } from "../components/ui";
-import { IcoPower } from "../components/icons";
+import { ZoneAssignSheet } from "../components/ZoneAssignSheet";
+import { IcoPower, IcoZona } from "../components/icons";
 import type { RootStackParamList } from "../navigation/types";
 
 type Props = NativeStackScreenProps<RootStackParamList, "ActuatorDetail">;
@@ -94,6 +108,21 @@ export function ActuatorDetailScreen({ route, navigation }: Props) {
   const hub = useHubStore((s) =>
     s.hubs.find((h) => h.hash === route.params.hubHash)
   );
+  const connectionMode = useHubStore((s) => s.connectionMode);
+  const zoneAssignments = useZoneStore((s) => s.assignments);
+  const knownZones = useZoneStore((s) => s.knownZones);
+  const setDeviceZones = useZoneStore((s) => s.setDeviceZones);
+  const [zoneSheetVisible, setZoneSheetVisible] = useState(false);
+  const assignmentKey = zoneAssignmentKey(
+    route.params.hubHash,
+    `relay-${relayAddress}`
+  );
+  const handleSaveZones = useCallback(
+    (next: readonly string[]) => {
+      setDeviceZones(assignmentKey, next);
+    },
+    [setDeviceZones, assignmentKey]
+  );
   const [throttled, setThrottled] = useState(false);
   const [verifying, setVerifying] = useState<[boolean, boolean]>([false, false]);
   const throttleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -129,7 +158,8 @@ export function ActuatorDetailScreen({ route, navigation }: Props) {
       setVerifyingChannel(ch, true);
 
       try {
-        const result = await toggleRelay(hub.ip, relayAddress, ch);
+        const target = resolveHubTarget(connectionMode, hub);
+        const result = await toggleRelay(target, relayAddress, ch);
         if (result !== "OK") {
           throw new Error("Hub rechazó el comando");
         }
@@ -186,7 +216,7 @@ export function ActuatorDetailScreen({ route, navigation }: Props) {
         }, TOGGLE_THROTTLE_MS);
       }
     },
-    [hub, relay, relayAddress, setVerifyingChannel]
+    [hub, relay, relayAddress, connectionMode, setVerifyingChannel]
   );
 
   if (!relay) {
@@ -200,7 +230,10 @@ export function ActuatorDetailScreen({ route, navigation }: Props) {
     );
   }
 
-  const zones = relay.zones ?? [];
+  const zones = mergeDeviceZones(
+    zoneAssignments[assignmentKey] ?? [],
+    relay.zones ?? []
+  );
 
   return (
     <ScrollView
@@ -219,6 +252,18 @@ export function ActuatorDetailScreen({ route, navigation }: Props) {
             ))}
           </View>
         )}
+        <TouchableOpacity
+          accessibilityRole="button"
+          accessibilityLabel="Editar zonas"
+          style={styles.editZonesBtn}
+          onPress={() => setZoneSheetVisible(true)}
+          activeOpacity={0.85}
+        >
+          <IcoZona size={18} color={COLORS.primary} />
+          <Text style={styles.editZonesText}>
+            {zones.length > 0 ? "Editar zonas" : "Asignar zonas"}
+          </Text>
+        </TouchableOpacity>
       </Card>
 
       {!relay.active && (
@@ -245,6 +290,17 @@ export function ActuatorDetailScreen({ route, navigation }: Props) {
         verifying={verifying[1]}
         onToggle={() => handleToggle(1)}
       />
+
+      {zoneSheetVisible && (
+        <ZoneAssignSheet
+          visible
+          deviceName={relay.alias}
+          knownZones={knownZones}
+          assignedZones={zones}
+          onSave={handleSaveZones}
+          onClose={() => setZoneSheetVisible(false)}
+        />
+      )}
     </ScrollView>
   );
 }
@@ -294,6 +350,22 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: 8,
     marginTop: 12,
+  },
+  editZonesBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    alignSelf: "flex-start",
+    marginTop: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    backgroundColor: COLORS.primarySoft,
+  },
+  editZonesText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: COLORS.primaryDark,
   },
   warnBanner: {
     backgroundColor: COLORS.warningSoft,

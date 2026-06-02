@@ -9,5 +9,6 @@ export { DeviceListItem } from "./DeviceListItem";
 export { DeviceFilter } from "./DeviceFilter";
 export { CropForm } from "./CropForm";
 export { ZoneFilterSheet } from "./ZoneFilterSheet";
+export { ZoneAssignSheet } from "./ZoneAssignSheet";
 export { HubStatusBanner } from "./HubStatusBanner";
 export type { FilterType } from "./DeviceFilter";

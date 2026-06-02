@@ -1,13 +1,18 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   View,
   FlatList,
   Text,
+  TextInput,
+  TouchableOpacity,
   ActivityIndicator,
   StyleSheet,
 } from "react-native";
 import { COLORS } from "../constants";
-import { getRecommendations } from "../services/hubDataService";
+import {
+  getRecommendations,
+  submitRecommendationQuery,
+} from "../services/hubDataService";
 import { Card, IconBadge } from "../components/ui";
 import { IcoIdea, IcoReloj } from "../components/icons";
 import type { Recommendation } from "../types";
@@ -59,6 +64,13 @@ export function RecommendationsScreen() {
     []
   );
   const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const loadRecommendations = useCallback(async () => {
+    const data = await getRecommendations();
+    setRecommendations(data);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -74,6 +86,23 @@ export function RecommendationsScreen() {
       cancelled = true;
     };
   }, []);
+
+  const handleSubmitQuery = useCallback(async () => {
+    const text = query.trim();
+    if (text === "" || submitting) {
+      return;
+    }
+    setSubmitting(true);
+    try {
+      // POST asíncrono al backend (/messages). La respuesta aparece luego
+      // en getRecommendations(). Con backend mock es un no-op.
+      await submitRecommendationQuery(text);
+      setQuery("");
+      await loadRecommendations();
+    } finally {
+      setSubmitting(false);
+    }
+  }, [query, submitting, loadRecommendations]);
 
   if (loading) {
     return (
@@ -107,6 +136,42 @@ export function RecommendationsScreen() {
               <Text style={styles.heroSubtitle}>
                 Consejos para tus cultivos
               </Text>
+            </View>
+          </View>
+        }
+        ListFooterComponent={
+          <View style={styles.queryBox}>
+            <Text style={styles.queryTitle}>¿Tenés una consulta?</Text>
+            <View style={styles.queryRow}>
+              <TextInput
+                style={styles.queryInput}
+                value={query}
+                onChangeText={setQuery}
+                placeholder="Escribí tu consulta…"
+                placeholderTextColor={COLORS.textMuted}
+                multiline
+                editable={!submitting}
+                accessibilityLabel="Consulta para recomendaciones"
+                onSubmitEditing={handleSubmitQuery}
+              />
+              <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityLabel="Enviar consulta"
+                accessibilityState={{ disabled: submitting || query.trim() === "" }}
+                style={[
+                  styles.queryBtn,
+                  (submitting || query.trim() === "") && styles.queryBtnDisabled,
+                ]}
+                onPress={handleSubmitQuery}
+                disabled={submitting || query.trim() === ""}
+                activeOpacity={0.85}
+              >
+                {submitting ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.queryBtnText}>Preguntar</Text>
+                )}
+              </TouchableOpacity>
             </View>
           </View>
         }
@@ -220,6 +285,53 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 22,
     color: COLORS.textSecondary,
+  },
+  queryBox: {
+    backgroundColor: COLORS.surface,
+    borderRadius: 18,
+    padding: 16,
+    marginTop: 4,
+    gap: 12,
+  },
+  queryTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: COLORS.text,
+  },
+  queryRow: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    gap: 10,
+  },
+  queryInput: {
+    flex: 1,
+    minHeight: 48,
+    maxHeight: 120,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.surfaceAlt,
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 12,
+    fontSize: 15,
+    color: COLORS.text,
+  },
+  queryBtn: {
+    minHeight: 48,
+    paddingHorizontal: 18,
+    borderRadius: 12,
+    backgroundColor: COLORS.primary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  queryBtnDisabled: {
+    opacity: 0.5,
+  },
+  queryBtnText: {
+    color: "#fff",
+    fontSize: 15,
+    fontWeight: "800",
   },
   empty: {
     alignItems: "center",

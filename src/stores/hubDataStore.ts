@@ -1,6 +1,13 @@
 import { create } from "zustand";
 import type { HubConfig, SensorData, RelayState, Alarm, Device } from "../types";
-import { getConfig, getActual, getRelays, getAlarms } from "../services/hubDataService";
+import {
+  getConfig,
+  getActual,
+  getRelays,
+  getAlarms,
+  pollHubNotifications,
+} from "../services/hubDataService";
+import { parseAlarmFromNotifyMessage } from "../services/hubApi/alarmsParser";
 import { buildHubSensorDevices } from "../features/sensors/buildHubSensorDevices";
 
 interface HubDataState {
@@ -11,10 +18,12 @@ interface HubDataState {
   readonly devices: readonly Device[];
   readonly loading: boolean;
   readonly error: string | null;
+  readonly notifySince: string | null;
 }
 
 interface HubDataActions {
   readonly loadHubData: (hubIp: string) => Promise<void>;
+  readonly pollNotifications: (topic: string) => Promise<void>;
   readonly clearData: () => void;
 }
 
@@ -37,7 +46,7 @@ function buildDevices(
 }
 
 export const useHubDataStore = create<HubDataState & HubDataActions>(
-  (set) => ({
+  (set, get) => ({
     config: null,
     actual: null,
     relays: [],
@@ -45,6 +54,7 @@ export const useHubDataStore = create<HubDataState & HubDataActions>(
     devices: [],
     loading: false,
     error: null,
+    notifySince: null,
 
     loadHubData: async (hubIp: string) => {
       set({ loading: true, error: null });
@@ -62,6 +72,42 @@ export const useHubDataStore = create<HubDataState & HubDataActions>(
       }
     },
 
+    pollNotifications: async (topic: string) => {
+      // Suscripción push del hub vía ntfy.sh (topic = incubator_name).
+      // Complementa a las alarmas derivadas de /actual.errors. Es best-effort:
+      // si falla, no debe afectar la pantalla. Mock-safe (el cliente mock
+      // devuelve mensajes seed; en producción se activa con NOTIFY_BACKEND=http).
+      try {
+        const since = get().notifySince ?? undefined;
+        const messages = await pollHubNotifications(topic, since);
+        if (messages.length === 0) {
+          return;
+        }
+
+        const parsed = messages
+          .map(parseAlarmFromNotifyMessage)
+          .filter((alarm): alarm is Alarm => alarm !== undefined);
+
+        const maxTime = messages.reduce(
+          (max, msg) => (msg.time > max ? msg.time : max),
+          0
+        );
+
+        set((state) => {
+          const existingIds = new Set(state.alarms.map((alarm) => alarm.id));
+          // Conservamos las existentes (preserva acknowledge/snooze locales) y
+          // anteponemos solo las realmente nuevas.
+          const fresh = parsed.filter((alarm) => !existingIds.has(alarm.id));
+          return {
+            alarms: fresh.length > 0 ? [...fresh, ...state.alarms] : state.alarms,
+            notifySince: maxTime > 0 ? String(maxTime) : state.notifySince,
+          };
+        });
+      } catch {
+        // ntfy es complementario; ignoramos errores de red.
+      }
+    },
+
     clearData: () =>
       set({
         config: null,
@@ -70,6 +116,7 @@ export const useHubDataStore = create<HubDataState & HubDataActions>(
         alarms: [],
         devices: [],
         error: null,
+        notifySince: null,
       }),
   })
 );

@@ -6,9 +6,10 @@ import { create } from "zustand";
  * Confirmado por LibreAgro: el hub NO almacena zonas. Toda la asignación
  * vive en el celular del usuario. Estructura: `deviceId -> zonas[]`.
  *
- * El `deviceId` se forma como:
- *   - sensor:   `sensor:<hubHash>:<sensorType>`     (ej. `sensor:AABBCCDDEEFF:scd30`)
- *   - actuador: `actuator:<hubHash>:<modbusAddr>`   (ej. `actuator:AABBCCDDEEFF:1`)
+ * La clave de asignación combina el hub y el id de dispositivo de la app
+ * (`device.id`), para que sea única aun con múltiples hubs:
+ *   `zoneAssignmentKey(hubHash, deviceId)` → `<hubHash>:<deviceId>`
+ *   (ej. `AABBCCDDEEFF:sensor-scd30-0`, `AABBCCDDEEFF:relay-1`)
  *
  * La lista global de zonas conocidas (`knownZones`) se mantiene aparte para
  * que la UI ofrezca autocompletar / multi-select sin duplicar strings.
@@ -67,13 +68,19 @@ export const useZoneStore = create<ZoneState & ZoneActions>((set, get) => ({
   getDeviceZones: (deviceId) => get().assignments[deviceId] ?? [],
 }));
 
-export function buildSensorDeviceId(hubHash: string, sensorType: string): string {
-  return `sensor:${hubHash}:${sensorType}`;
+/** Clave única de asignación de zonas: hub + id de dispositivo de la app. */
+export function zoneAssignmentKey(hubHash: string, deviceId: string): string {
+  return `${hubHash}:${deviceId}`;
 }
 
-export function buildActuatorDeviceId(
-  hubHash: string,
-  modbusAddress: number
-): string {
-  return `actuator:${hubHash}:${modbusAddress}`;
+/**
+ * Une zonas asignadas localmente con las que provea el hub (fallback), sin
+ * duplicar. Hoy el hub no expone zonas, pero los mocks sí; este merge permite
+ * que la asignación local conviva con esos datos sin romper la demo.
+ */
+export function mergeDeviceZones(
+  local: readonly string[],
+  fallback: readonly string[]
+): readonly string[] {
+  return Array.from(new Set([...local, ...fallback]));
 }

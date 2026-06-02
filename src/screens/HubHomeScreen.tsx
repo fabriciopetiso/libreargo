@@ -24,6 +24,13 @@ import type { RootStackParamList } from "../navigation/types";
 import { getSensorRangeVisual } from "../utils/getSensorRangeVisual";
 import { semaforo, type SemaforoState } from "../utils/semaforo";
 import { IcoZona } from "../components/icons";
+import { resolveHubTarget } from "../services/connectivity";
+import { getNotifyBackend } from "../services/notifyApi/backend";
+import {
+  useZoneStore,
+  zoneAssignmentKey,
+  mergeDeviceZones,
+} from "../stores/zoneStore";
 
 type Props = NativeStackScreenProps<RootStackParamList, "HubHome">;
 
@@ -48,6 +55,7 @@ function SectionHeader({ label }: SectionHeaderProps) {
 export function HubHomeScreen({ navigation, route }: Props) {
   const { hubHash, filter: initialFilter } = route.params;
   const hub = useHubStore((s) => s.hubs.find((h) => h.hash === hubHash));
+  const connectionMode = useHubStore((s) => s.connectionMode);
   const {
     alarms,
     devices,
@@ -57,6 +65,7 @@ export function HubHomeScreen({ navigation, route }: Props) {
     loading,
     error,
     loadHubData,
+    pollNotifications,
     clearData,
   } = useHubDataStore();
   const [filter, setFilter] = useState<FilterType>(() =>
@@ -64,27 +73,60 @@ export function HubHomeScreen({ navigation, route }: Props) {
   );
   const [selectedZones, setSelectedZones] = useState<readonly string[]>([]);
   const [zoneSheetVisible, setZoneSheetVisible] = useState(false);
+  const zoneAssignments = useZoneStore((s) => s.assignments);
 
   useEffect(() => {
     setFilter(resolveFilter(initialFilter));
   }, [initialFilter]);
 
   useEffect(() => {
-    if (hub) {
-      navigation.setOptions({ title: hub.name });
-      loadHubData(hub.ip);
+    if (!hub) {
+      return;
     }
 
+    navigation.setOptions({ title: hub.name });
+    let cancelled = false;
+
+    void (async () => {
+      await loadHubData(resolveHubTarget(connectionMode, hub));
+      // El push por ntfy solo se consulta cuando el backend está activo (http).
+      // En modo mock (default) la app funciona con las alarmas de /actual.
+      if (!cancelled && getNotifyBackend() === "http") {
+        await pollNotifications(hub.name);
+      }
+    })();
+
     return () => {
+      cancelled = true;
       clearData();
     };
-  }, [hub, navigation, loadHubData, clearData]);
+  }, [
+    hub,
+    connectionMode,
+    navigation,
+    loadHubData,
+    pollNotifications,
+    clearData,
+  ]);
+
+  // Zonas efectivas por dispositivo = asignación local (celular) ∪ las que
+  // provea el hub/mock. El hub real no expone zonas; se asignan en la app.
+  const effectiveZonesByDevice = useMemo(() => {
+    const map = new Map<string, readonly string[]>();
+    devices.forEach((device) => {
+      const local = zoneAssignments[zoneAssignmentKey(hubHash, device.id)] ?? [];
+      map.set(device.id, mergeDeviceZones(local, device.zones));
+    });
+    return map;
+  }, [devices, zoneAssignments, hubHash]);
 
   const availableZones = useMemo(() => {
     const zones = new Set<string>();
-    devices.forEach((device) => device.zones.forEach((zone) => zones.add(zone)));
+    effectiveZonesByDevice.forEach((deviceZones) =>
+      deviceZones.forEach((zone) => zones.add(zone))
+    );
     return Array.from(zones).sort();
-  }, [devices]);
+  }, [effectiveZonesByDevice]);
 
   const filteredDevices = useMemo(() => {
     const byType =
@@ -100,9 +142,11 @@ export function HubHomeScreen({ navigation, route }: Props) {
 
     const zoneSet = new Set(selectedZones);
     return byType.filter((device) =>
-      device.zones.some((zone) => zoneSet.has(zone))
+      (effectiveZonesByDevice.get(device.id) ?? []).some((zone) =>
+        zoneSet.has(zone)
+      )
     );
-  }, [devices, filter, selectedZones]);
+  }, [devices, filter, selectedZones, effectiveZonesByDevice]);
 
   const sensorVisuals = useMemo(() => {
     const map = new Map<string, SensorRangeVisual | null>();

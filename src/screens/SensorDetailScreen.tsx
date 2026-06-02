@@ -1,5 +1,11 @@
-import { useMemo } from "react";
-import { View, Text, FlatList, StyleSheet } from "react-native";
+import { useCallback, useMemo, useState } from "react";
+import {
+  View,
+  Text,
+  FlatList,
+  StyleSheet,
+  TouchableOpacity,
+} from "react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { COLORS } from "../constants";
 import {
@@ -10,9 +16,16 @@ import {
 } from "../features/sensors/sensorMeasurementCatalog";
 import { getMeasurementRange } from "../features/sensors/getMeasurementRange";
 import { useHubDataStore } from "../stores/hubDataStore";
+import {
+  useZoneStore,
+  zoneAssignmentKey,
+  mergeDeviceZones,
+} from "../stores/zoneStore";
 import { mockReadings } from "../mocks";
 import type { RootStackParamList } from "../navigation/types";
 import { Card, IconBadge, ZonaPill } from "../components/ui";
+import { ZoneAssignSheet } from "../components/ZoneAssignSheet";
+import { IcoZona } from "../components/icons";
 import { getDeviceIcon } from "../components/icons/getDeviceIcon";
 import { semaforo, type SemaforoState } from "../utils/semaforo";
 
@@ -44,19 +57,35 @@ function getSensorLabelFromId(sensorId: string): string {
 }
 
 export function SensorDetailScreen({ route, navigation }: Props) {
-  const { sensorId } = route.params;
+  const { sensorId, hubHash } = route.params;
   const actual = useHubDataStore((s) => s.actual);
   const config = useHubDataStore((s) => s.config);
   const sensorDevice = useHubDataStore((s) =>
     s.devices.find((device) => device.id === sensorId && device.type === "sensor")
   );
 
+  const zoneAssignments = useZoneStore((s) => s.assignments);
+  const knownZones = useZoneStore((s) => s.knownZones);
+  const setDeviceZones = useZoneStore((s) => s.setDeviceZones);
+  const [zoneSheetVisible, setZoneSheetVisible] = useState(false);
+
   const measurementKey = sensorDevice?.sensorType ?? null;
   const measurementLabel = measurementKey ? LABEL_MAP[measurementKey] : null;
   const measurementRange = measurementKey
     ? getMeasurementRange(measurementKey, config)
     : null;
-  const zones = sensorDevice?.zones ?? [];
+  const assignmentKey = zoneAssignmentKey(hubHash, sensorId);
+  const zones = mergeDeviceZones(
+    zoneAssignments[assignmentKey] ?? [],
+    sensorDevice?.zones ?? []
+  );
+
+  const handleSaveZones = useCallback(
+    (next: readonly string[]) => {
+      setDeviceZones(assignmentKey, next);
+    },
+    [setDeviceZones, assignmentKey]
+  );
 
   const errors = useMemo(() => {
     if (!actual) return [];
@@ -193,6 +222,18 @@ export function SensorDetailScreen({ route, navigation }: Props) {
                   ))}
                 </View>
               )}
+              <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityLabel="Editar zonas"
+                style={styles.editZonesBtn}
+                onPress={() => setZoneSheetVisible(true)}
+                activeOpacity={0.85}
+              >
+                <IcoZona size={18} color={COLORS.primary} />
+                <Text style={styles.editZonesText}>
+                  {zones.length > 0 ? "Editar zonas" : "Asignar zonas"}
+                </Text>
+              </TouchableOpacity>
             </Card>
 
             {errors.length > 0 && (
@@ -245,6 +286,17 @@ export function SensorDetailScreen({ route, navigation }: Props) {
         }}
         contentContainerStyle={styles.listContent}
       />
+
+      {zoneSheetVisible && (
+        <ZoneAssignSheet
+          visible
+          deviceName={sensorDevice.name}
+          knownZones={knownZones}
+          assignedZones={zones}
+          onSave={handleSaveZones}
+          onClose={() => setZoneSheetVisible(false)}
+        />
+      )}
     </View>
   );
 }
@@ -367,6 +419,22 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: 8,
     marginTop: 12,
+  },
+  editZonesBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    alignSelf: "flex-start",
+    marginTop: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    backgroundColor: COLORS.primarySoft,
+  },
+  editZonesText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: COLORS.primaryDark,
   },
   unsupportedCard: {
     gap: 8,
