@@ -21,6 +21,11 @@ jobs:
   test:
     name: Lint de tipos + tests
     runs-on: ubuntu-latest
+    env:
+      # El runner usa UTC; el negocio opera en UTC-3 y hay lógica de fechas
+      # (cultivos vigentes) sensible a la TZ. jest.config.js ya la fija, esto
+      # lo deja explícito a nivel proceso.
+      TZ: America/Montevideo
     steps:
       - uses: actions/checkout@v4
 
