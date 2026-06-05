@@ -43,7 +43,7 @@ yarn-error.*
 # local worktrees
 .worktrees/
 
-platinera/
+plantinera/
 
 libreagro-resumen.pdf
 
