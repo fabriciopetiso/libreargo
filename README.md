@@ -62,6 +62,9 @@ Alarmas.
 En **Directo** no se consulta ntfy: el teléfono queda conectado al AP del hub y
 no tiene salida a internet.
 
+Ver la guía operativa completa en
+[`docs/ntfy-android-mvp.md`](docs/ntfy-android-mvp.md).
+
 ## Tests y tipos
 
 ```bash
