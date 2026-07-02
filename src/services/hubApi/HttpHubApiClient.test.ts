@@ -37,6 +37,31 @@ describe("createHttpHubApiClient", () => {
     expect(result).toEqual(mockConfig);
   });
 
+  it("parses hub JSON even when the ESP32 labels it as text/plain", async () => {
+    const json = jest.fn().mockResolvedValue(mockConfig);
+    const text = jest.fn();
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: {
+        get: jest.fn().mockReturnValue("text/plain; charset=utf-8"),
+      },
+      json,
+      text,
+    });
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const client = createHttpHubApiClient();
+    const result = await client.getConfig("192.168.4.1");
+
+    expect(fetchMock).toHaveBeenCalledWith("http://192.168.4.1/config", {
+      method: "GET",
+    });
+    expect(json).toHaveBeenCalledTimes(1);
+    expect(text).not.toHaveBeenCalled();
+    expect(result).toEqual(mockConfig);
+  });
+
   it("calls the toggle endpoint with query parameters and returns text", async () => {
     const text = jest.fn().mockResolvedValue("OK");
     const fetchMock = jest.fn().mockResolvedValue({

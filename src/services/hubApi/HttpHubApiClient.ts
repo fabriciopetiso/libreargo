@@ -29,15 +29,15 @@ export function createHttpHubApiClient(): HubApiClient {
   return {
     async getConfig(hubIp: string) {
       const response = await request(hubIp, "/config", { method: "GET" });
-      return mapConfigurationResponse(await readBody(response));
+      return mapConfigurationResponse(await readJsonBody(response));
     },
     async getActual(hubIp: string) {
       const response = await request(hubIp, "/actual", { method: "GET" });
-      return mapSensorDataResponse(await readBody(response));
+      return mapSensorDataResponse(await readJsonBody(response));
     },
     async getRelays(hubIp: string) {
       const response = await request(hubIp, "/api/relays", { method: "GET" });
-      return mapRelayListResponse(await readBody(response));
+      return mapRelayListResponse(await readJsonBody(response));
     },
     async toggleRelay(hubIp: string, addr: number, ch: number) {
       const response = await request(
@@ -58,7 +58,7 @@ export function createHttpHubApiClient(): HubApiClient {
       // "<texto>,<timestamp>" y se parsea localmente.
       // La suscripción push a `notify/<Hub_ID>` queda fuera de MVP.
       const response = await request(hubIp, "/actual", { method: "GET" });
-      const sensorData = mapSensorDataResponse(await readBody(response));
+      const sensorData = mapSensorDataResponse(await readJsonBody(response));
       return parseAlarmsFromSensorData(sensorData);
     },
     async pingHub(hubIp: string): Promise<boolean> {
@@ -115,9 +115,18 @@ async function request(
   }
 }
 
+async function readJsonBody(response: HubResponse): Promise<unknown> {
+  try {
+    return await response.json();
+  } catch {
+    throw new HubApiInvalidResponseError();
+  }
+}
+
 async function readBody(response: HubResponse): Promise<unknown> {
   const contentType = response.headers.get("content-type") ?? "";
-  const isJson = contentType.includes("application/json") || contentType.includes("+json");
+  const isJson =
+    contentType.includes("application/json") || contentType.includes("+json");
 
   try {
     return isJson ? await response.json() : await response.text();
